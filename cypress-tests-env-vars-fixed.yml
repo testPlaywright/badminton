@@ -1,0 +1,105 @@
+name: Cypress E2E Test Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Select environment to test'
+        required: true
+        default: 'DEV'
+        type: choice
+        options:
+          - DEV
+          - TEST
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  test:
+    runs-on: uhg-runner
+
+    strategy:
+      matrix:
+        include:
+          - ENV_NAME: DEV
+            ROLE_NAME: analyst
+          - ENV_NAME: TEST
+            ROLE_NAME: admin
+          - ENV_NAME: TEST
+            ROLE_NAME: analyst
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20.x
+
+      - name: Installing Cypress Dependencies and xvfb
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libnss3 libxss1 libasound2 libxtst6 xauth
+
+      - name: npm Install
+        run: |
+          npm install
+
+      - name: Set Environment Variables
+        run: |
+          if [ "$ENV_NAME" = "DEV" ]; then
+            echo "BASE_URL=${{ secrets.DEV_BASE_URL }}" >> $GITHUB_ENV
+            echo "USERNAME=${{ secrets.DEV_ANALYST_USERNAME }}" >> $GITHUB_ENV
+            echo "PASSWORD=${{ secrets.DEV_ANALYST_PASSWORD }}" >> $GITHUB_ENV
+          elif [ "$ENV_NAME" = "TEST" ]; then
+            echo "BASE_URL=${{ secrets.TEST_BASE_URL }}" >> $GITHUB_ENV
+            if [ "$ROLE_NAME" = "admin" ]; then
+              echo "USERNAME=${{ secrets.TEST_ADMIN_USERNAME }}" >> $GITHUB_ENV
+              echo "PASSWORD=${{ secrets.TEST_ADMIN_PASSWORD }}" >> $GITHUB_ENV
+            else
+              echo "USERNAME=${{ secrets.TEST_ANALYST_USERNAME }}" >> $GITHUB_ENV
+              echo "PASSWORD=${{ secrets.TEST_ANALYST_PASSWORD }}" >> $GITHUB_ENV
+            fi
+          fi
+        env:
+          ENV_NAME: ${{ matrix.ENV_NAME }}
+          ROLE_NAME: ${{ matrix.ROLE_NAME }}
+
+      - name: Create Cypress Reports Directory
+        run: |
+          REPORT_DATE=$(date +'%Y-%m-%d')
+          REPORT_PATH="cypress/reports/$ENV_NAME/$ROLE_NAME/$REPORT_DATE"
+          mkdir -p "$REPORT_PATH"
+          echo "REPORT_DATE=$REPORT_DATE" >> $GITHUB_ENV
+          echo "REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
+        env:
+          ENV_NAME: ${{ matrix.ENV_NAME }}
+          ROLE_NAME: ${{ matrix.ROLE_NAME }}
+
+      - name: Run Cypress Tests
+        run: |
+          if [ "$ROLE_NAME" = "admin" ]; then
+            echo "Running ALL tests (admin + analyst folders)"
+            npx cypress run --spec "cypress/e2e/admin/features/**/*.feature,cypress/e2e/analyst/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
+          else
+            echo "Running analyst-only tests"
+            npx cypress run --spec "cypress/e2e/analyst/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
+          fi
+        env:
+          ROLE_NAME: ${{ matrix.ROLE_NAME }}
+          ENV_NAME: ${{ matrix.ENV_NAME }}
+
+      - name: Upload Cypress Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-${{ matrix.ENV_NAME }}-${{ matrix.ROLE_NAME }}
+          path: |
+            ./cypress/screenshots
+            ${{ env.REPORT_PATH }}
