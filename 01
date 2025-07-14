@@ -1,11 +1,36 @@
+name: Cypress E2E Test Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Select environment to test'
+        required: true
+        default: 'DEV'
+        type: choice
+        options:
+          - DEV
+          - TEST
+
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   test:
     runs-on: uhg-runner
 
     strategy:
       matrix:
-        ENV_NAME: ${{ fromJson(format('["{0}"]', github.event.inputs.target_env || 'TEST')) }}
-        ROLE_NAME: [admin, analyst]
+        include:
+          - ENV_NAME: DEV
+            ROLE_NAME: analyst
+          - ENV_NAME: TEST
+            ROLE_NAME: admin
+          - ENV_NAME: TEST
+            ROLE_NAME: analyst
 
     steps:
       - name: Skip non-selected environment (manual trigger only)
@@ -38,17 +63,12 @@ jobs:
           npm config set registry https://repo1.uhc.com/artifactory/api/npm/npm-virtual/
           npm install
 
-      - name: Set Environment Variables for ${{ matrix.ENV_NAME }} and ${{ matrix.ROLE_NAME }}
+      - name: Set Environment Variables
         run: |
           if [ "${{ matrix.ENV_NAME }}" = "DEV" ]; then
             echo "BASE_URL=${{ secrets.DEV_BASE_URL }}" >> $GITHUB_ENV
-            if [ "${{ matrix.ROLE_NAME }}" = "admin" ]; then
-              echo "USERNAME=${{ secrets.DEV_ADMIN_USERNAME }}" >> $GITHUB_ENV
-              echo "PASSWORD=${{ secrets.DEV_ADMIN_PASSWORD }}" >> $GITHUB_ENV
-            else
-              echo "USERNAME=${{ secrets.DEV_ANALYST_USERNAME }}" >> $GITHUB_ENV
-              echo "PASSWORD=${{ secrets.DEV_ANALYST_PASSWORD }}" >> $GITHUB_ENV
-            fi
+            echo "USERNAME=${{ secrets.DEV_ANALYST_USERNAME }}" >> $GITHUB_ENV
+            echo "PASSWORD=${{ secrets.DEV_ANALYST_PASSWORD }}" >> $GITHUB_ENV
           elif [ "${{ matrix.ENV_NAME }}" = "TEST" ]; then
             echo "BASE_URL=${{ secrets.TEST_BASE_URL }}" >> $GITHUB_ENV
             if [ "${{ matrix.ROLE_NAME }}" = "admin" ]; then
@@ -71,44 +91,17 @@ jobs:
           echo "REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
           echo "::set-output name=date::$REPORT_DATE"
 
-      - name: Run Cypress Tests on ${{ matrix.ENV_NAME }} as ${{ matrix.ROLE_NAME }}
+      - name: Run Cypress Tests for ${{ matrix.ROLE_NAME }} in ${{ matrix.ENV_NAME }}
         run: |
           if [ "${{ matrix.ROLE_NAME }}" = "admin" ]; then
-            echo "Running admin tests"
-            npx cypress run --spec "cypress/e2e/admin/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
+            echo "Running ALL tests (admin + analyst folders)"
+            npx cypress run --spec "cypress/e2e/admin/features/**/*.feature,cypress/e2e/analyst/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
           else
-            echo "Running analyst tests"
+            echo "Running analyst-only tests"
             npx cypress run --spec "cypress/e2e/analyst/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
-          fi
 
       - name: Final Summary
         run: echo "✅ Cypress Tests Completed Successfully on ${{ matrix.ENV_NAME }} as ${{ matrix.ROLE_NAME }}"
-
-      - name: Automation Summary
-        id: automation-summary
-        shell: bash
-        if: always()
-        run: |
-          stats="$(jq -s 'reduce .[] as $item ({"passes":0,"failures":0,"pending":0,"skipped":0}; 
-            .passes += ($item.stats.passes // 0) |
-            .failures += ($item.stats.failures // 0) |
-            .pending += ($item.stats.pending // 0) |
-            .skipped += ($item.stats.skipped // 0))' $REPORT_PATH/*.json)"
-
-          passed=$(echo $stats | jq '.passes')
-          failed=$(echo $stats | jq '.failures')
-          pending=$(echo $stats | jq '.pending')
-          skipped=$(echo $stats | jq '.skipped')
-          total=$((passed + failed + pending + skipped))
-
-          echo "### ✅ CAT Automation Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| 🧪 Total Test Cases | $total |" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $passed |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $failed |" >> $GITHUB_STEP_SUMMARY
-          echo "| ⏸️ Pending | $pending |" >> $GITHUB_STEP_SUMMARY
-          echo "| 🔕 Skipped | $skipped |" >> $GITHUB_STEP_SUMMARY
 
       - name: Cypress Reports with Screenshots
         uses: actions/upload-artifact@v4
@@ -118,21 +111,3 @@ jobs:
           path: |
             ./cypress/screenshots
             ${{ env.REPORT_PATH }}
-
-      - name: Deploy to the object storage bucket
-        if: always()
-        uses: uhg-pipelines/epl-microsite/deploy/s3docs@dcf44c3b4e36255e9888967c09696f8b38aab3ea
-        with:
-          bucket-name: 'orx-cat-ar'
-          build-directory: '${{ env.REPORT_PATH }}'
-          aws-access-key-id: '${{ secrets.ACCESS_KEY_ID }}'
-          aws-secret-access-key: '${{ secrets.SECRET_ACCESS_KEY }}'
-
-      - name: Print Report URL
-        if: always()
-        run: |
-          echo "### 🌐 Report Deployed" >> $GITHUB_STEP_SUMMARY
-          echo "📅 Date: ${{ env.REPORT_DATE }}" >> $GITHUB_STEP_SUMMARY
-          echo "🌍 Env: ${{ matrix.ENV_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "👤 Role: ${{ matrix.ROLE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "🔗 [Click to View Report](https://orx-cat-ar.s3docs.optum.com/index.html)"
