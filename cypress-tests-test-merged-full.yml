@@ -57,19 +57,24 @@ jobs:
           npm config set registry https://repo1.uhc.com/artifactory/api/npm/npm-virtual/
           npm install
 
+      - name: Create Cypress Reports Directory (Admin)
+        run: |
+          export REPORT_PATH="cypress/reports/test/admin/$(date +'%Y-%m-%d_%H-%M-%S')"
+          mkdir -p "$REPORT_PATH"
+          echo "ADMIN_REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
+
       - name: Run Admin Tests (TEST)
         run: |
           echo "BASE_URL=${{ secrets.TEST_BASE_URL }}" >> $GITHUB_ENV
           echo "USERNAME=${{ secrets.TEST_ADMIN_USERNAME }}" >> $GITHUB_ENV
           echo "PASSWORD=${{ secrets.TEST_ADMIN_PASSWORD }}" >> $GITHUB_ENV
 
-          export REPORT_PATH="cypress/reports/test/admin/$(date +'%Y-%m-%d_%H-%M-%S')"
-          mkdir -p "$REPORT_PATH"
-
           echo "Running ADMIN tests on TEST"
-          npx cypress run --spec "cypress/e2e/admin/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
-
-          echo "ADMIN_REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
+          npx cypress run --spec "cypress/e2e/admin/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$ADMIN_REPORT_PATH
+        env:
+          BASE_URL: ${{ secrets.TEST_BASE_URL }}
+          USERNAME: ${{ secrets.TEST_ADMIN_USERNAME }}
+          PASSWORD: ${{ secrets.TEST_ADMIN_PASSWORD }}
 
       - name: Upload Admin Report
         uses: actions/upload-artifact@v4
@@ -77,9 +82,15 @@ jobs:
         with:
           name: cypress-report-test-admin
           path: |
-            cypress/reports/test/admin/
+            ${{ env.ADMIN_REPORT_PATH }}
             cypress/screenshots
             cypress/videos
+
+      - name: Create Cypress Reports Directory (Analyst)
+        run: |
+          export REPORT_PATH="cypress/reports/test/analyst/$(date +'%Y-%m-%d_%H-%M-%S')"
+          mkdir -p "$REPORT_PATH"
+          echo "ANALYST_REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
 
       - name: Run Analyst Tests (TEST)
         run: |
@@ -87,13 +98,12 @@ jobs:
           echo "USERNAME=${{ secrets.TEST_ANALYST_USERNAME }}" >> $GITHUB_ENV
           echo "PASSWORD=${{ secrets.TEST_ANALYST_PASSWORD }}" >> $GITHUB_ENV
 
-          export REPORT_PATH="cypress/reports/test/analyst/$(date +'%Y-%m-%d_%H-%M-%S')"
-          mkdir -p "$REPORT_PATH"
-
           echo "Running ANALYST tests on TEST"
-          npx cypress run --spec "cypress/e2e/analyst/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$REPORT_PATH
-
-          echo "ANALYST_REPORT_PATH=$REPORT_PATH" >> $GITHUB_ENV
+          npx cypress run --spec "cypress/e2e/analyst/features/**/*.feature" --env BASE_URL=$BASE_URL,USERNAME=$USERNAME,PASSWORD=$PASSWORD,REPORT_PATH=$ANALYST_REPORT_PATH
+        env:
+          BASE_URL: ${{ secrets.TEST_BASE_URL }}
+          USERNAME: ${{ secrets.TEST_ANALYST_USERNAME }}
+          PASSWORD: ${{ secrets.TEST_ANALYST_PASSWORD }}
 
       - name: Upload Analyst Report
         uses: actions/upload-artifact@v4
@@ -101,6 +111,6 @@ jobs:
         with:
           name: cypress-report-test-analyst
           path: |
-            cypress/reports/test/analyst/
+            ${{ env.ANALYST_REPORT_PATH }}
             cypress/screenshots
             cypress/videos
