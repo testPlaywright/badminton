@@ -1,1 +1,1 @@
-test example
+mkdir -p orx-cat-repos && cd orx-cat-repos && for repo in $(gh repo list optum-rx-pbm --limit 1000 --json name --jq '.[] | select(.name | startswith("orx-cat-")) | .name'); do gh repo clone optum-rx-pbm/$repo; done
