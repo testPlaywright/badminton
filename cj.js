@@ -1,21 +1,43 @@
+// cypress/support/commands.js
 
-Cypress.Commands.add('sessionLogin', () => {
-  cy.session('login', () => {
-    // Clear previous session data
-    cy.clearCookies();
-    cy.clearLocalStorage();
-    sessionStorage.clear();
+Cypress.Commands.add('ssoLoginOnce', () => {
+  cy.session('ssoSession', () => {
+    cy.request({
+      method: 'GET',
+      url: 'https://rxc-cat-test.optum.com/login', // Adjust to actual SSO init URL
+      followRedirect: false
+    }).then((res1) => {
+      const authLocation = res1.redirectedToUrl || res1.headers.location;
 
-    // Visit main app page that initiates login
-    cy.visit('https://rxc-cat-test.optum.com/tickets');
+      cy.request({
+        method: 'GET',
+        url: authLocation,
+        followRedirect: false
+      }).then((res2) => {
+        const callbackUrl = res2.redirectedToUrl || res2.headers.location;
 
-    // Wait for login to complete by checking for the auth_verification cookie
-    cy.getCookie('auth_verification').should('exist');
+        cy.request({
+          method: 'GET',
+          url: callbackUrl,
+          followRedirect: false
+        }).then((res3) => {
+          const finalRedirect = res3.headers.location;
 
-    // Store auth_verification in Cypress env for use in tests
-    cy.getCookie('auth_verification').then((cookie) => {
-      Cypress.env('auth_verification', cookie.value);
-      cy.log(`✅ auth_verification = ${cookie.value}`);
+          cy.request({
+            method: 'GET',
+            url: finalRedirect,
+            followRedirect: false
+          }).then((res4) => {
+            const cookies = res4.headers['set-cookie'] || [];
+
+            cookies.forEach(cookieStr => {
+              const [cookiePair] = cookieStr.split(';');
+              const [name, value] = cookiePair.split('=');
+              cy.setCookie(name.trim(), value.trim());
+            });
+          });
+        });
+      });
     });
   });
 });
