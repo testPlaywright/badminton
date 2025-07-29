@@ -1,3 +1,4 @@
+
 import {
   BASE_URL,
   USERNAME,
@@ -39,26 +40,24 @@ Cypress.Commands.add('ssoLogin', () => {
               const redirectUrl = getRedirectUrl(response);
               cy.log(`🔁 Redirect to: ${redirectUrl}`);
 
-              return cy
-                .request({
-                  method: 'GET',
-                  url: redirectUrl,
-                  followRedirect: true
-                })
-                .then(response => {
-                  console.log('🔍 Final Response Headers:', response.headers);
-                  cy.log('🔍 Set-Cookie:', response.headers['set-cookie']);
+              // ✅ Switch from request to visit for browser-based redirect
+              return cy.visit(redirectUrl).then(() => {
+                // ✅ Read cookie from browser after redirect completes
+                cy.getCookie('auth_verification').then(cookie => {
+                  if (!cookie || !cookie.value) {
+                    throw new Error('❌ auth_verification cookie not found');
+                  }
 
-                  const authVerification = getAuthVerification(response);
-                  Cypress.env('auth_verification', authVerification);
-                  cy.log(`✅ auth_verification=${authVerification}`);
+                  Cypress.env('auth_verification', cookie.value);
+                  cy.log(`✅ auth_verification = ${cookie.value}`);
 
-                  const appSession = getAppSession(response);
-                  Cypress.env('cookieTime', new Date());
-                  Cypress.env('appSession', appSession);
-
-                  return cy.wrap(null); // Chainable
+                  // Optional: get other session cookies if needed
+                  cy.getCookies().then(cookies => {
+                    Cypress.env('cookieTime', new Date());
+                    Cypress.env('appSession', cookies);
+                  });
                 });
+              });
             });
         });
     });
@@ -102,22 +101,6 @@ const getRedirectUrl = response => {
   const redirectRegex = /^\S+ (https?:\/\/.+)$/;
   const match = redirectRegex.exec(redirectLine);
   return match ? match[1] : null;
-};
-
-const getAppSession = response => {
-  return response.headers['set-cookie'];
-};
-
-const getAuthVerification = (response) => {
-  const setCookies = response.headers['set-cookie'];
-  console.log('🔍 Full set-cookie:', setCookies);
-
-  if (!setCookies || !setCookies.some(c => c.includes('auth_verification='))) {
-    throw new Error('❌ auth_verification cookie not found');
-  }
-
-  const cookieHeader = setCookies.find(c => c.includes('auth_verification='));
-  return extractValueFromCookie(cookieHeader, 'auth_verification');
 };
 
 const extractValueFromCookie = (cookie, key) => {
