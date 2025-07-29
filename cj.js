@@ -21,12 +21,12 @@ Cypress.Commands.add('ssoLogin', () => {
       return cy
         .request({ method: 'GET', url: locationUrl })
         .then(response => {
-          const location = getLoc(response);
+          const loginUrl = getLoc(response);
 
           return cy
             .request({
               method: 'POST',
-              url: location,
+              url: loginUrl,
               form: true,
               body: {
                 'pf.username': USERNAME,
@@ -37,34 +37,37 @@ Cypress.Commands.add('ssoLogin', () => {
             })
             .then(response => {
               const redirectUrl = getRedirectUrl(response);
+              cy.log(`🔁 Redirect to: ${redirectUrl}`);
 
-              // ✅ Final redirect to callback — where auth_verification is set
               return cy
                 .request({
                   method: 'GET',
-                  url: redirectUrl
+                  url: redirectUrl,
+                  followRedirect: true
                 })
                 .then(response => {
-                  const authVerification = getAuthVerification(response); // ✅ moved here
+                  console.log('🔍 Final Response Headers:', response.headers);
+                  cy.log('🔍 Set-Cookie:', response.headers['set-cookie']);
+
+                  const authVerification = getAuthVerification(response);
                   Cypress.env('auth_verification', authVerification);
                   cy.log(`✅ auth_verification=${authVerification}`);
 
                   const appSession = getAppSession(response);
-                  const date = new Date();
-                  Cypress.env('cookieTime', date);
+                  Cypress.env('cookieTime', new Date());
                   Cypress.env('appSession', appSession);
 
-                  return cy.wrap(null);
+                  return cy.wrap(null); // Chainable
                 });
             });
         });
     });
 });
 
-// ===== Optional Session Wrapper =====
+// ===== Reusable Session Wrapper =====
 
 Cypress.Commands.add('ssoLoginOnce', () => {
-  const sessionTimeout = 25 * 60 * 1000; // 25 minutes
+  const sessionTimeout = 25 * 60 * 1000;
   const cookieTime = Cypress.env('cookieTime');
   const appSession = Cypress.env('appSession');
 
@@ -105,14 +108,15 @@ const getAppSession = response => {
   return response.headers['set-cookie'];
 };
 
-const getAuthVerification = response => {
+const getAuthVerification = (response) => {
   const setCookies = response.headers['set-cookie'];
-  const cookieHeader = setCookies?.find(c => c.includes('auth_verification='));
+  console.log('🔍 Full set-cookie:', setCookies);
 
-  if (!cookieHeader) {
-    throw new Error('❌ auth_verification cookie not found in Set-Cookie');
+  if (!setCookies || !setCookies.some(c => c.includes('auth_verification='))) {
+    throw new Error('❌ auth_verification cookie not found');
   }
 
+  const cookieHeader = setCookies.find(c => c.includes('auth_verification='));
   return extractValueFromCookie(cookieHeader, 'auth_verification');
 };
 
@@ -124,3 +128,25 @@ const extractValueFromCookie = (cookie, key) => {
       ?.split('=') || [];
   return value;
 };
+
+// ===== Support Utilities =====
+
+beforeEach(() => {
+  cy.document({ timeout: 30000 }).should('have.property', 'readyState', 'complete');
+});
+
+Cypress.config('defaultCommandTimeout', 10000);
+
+// Optional: clean logs for headless
+Cypress.Commands.overwrite('log', function (log, ...args) {
+  if (Cypress.browser.isHeadless) {
+    return cy.task('log', args, { log: false }).then(() => log(...args));
+  } else {
+    console.log(...args);
+    return log(...args);
+  }
+});
+
+Cypress.Commands.add('stablizeApp', () => {
+  cy.wait(2000);
+});
