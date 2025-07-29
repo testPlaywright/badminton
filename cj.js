@@ -1,10 +1,3 @@
-// ***********************************************
-// This example commands.js shows you how to
-// create various custom commands and overwrite
-// existing commands.
-// https://on.cypress.io/custom-commands
-// ***********************************************
-
 import {
   BASE_URL,
   USERNAME,
@@ -12,6 +5,8 @@ import {
   CANCEL,
   CLICKED
 } from './constants';
+
+// ===== Cypress Command: ssoLogin =====
 
 Cypress.Commands.add('ssoLogin', () => {
   return cy
@@ -41,25 +36,24 @@ Cypress.Commands.add('ssoLogin', () => {
               }
             })
             .then(response => {
-              const authVerification = getAuthVerification(response);
-              Cypress.env('auth_verification', authVerification);
-
               const redirectUrl = getRedirectUrl(response);
-              cy.log(`✅ auth_verification=${authVerification}`);
 
+              // ✅ Final redirect to callback — where auth_verification is set
               return cy
                 .request({
                   method: 'GET',
-                  url: redirectUrl,
-                  headers: {
-                    Cookie: `auth_verification=${authVerification}`
-                  }
+                  url: redirectUrl
                 })
                 .then(response => {
+                  const authVerification = getAuthVerification(response); // ✅ moved here
+                  Cypress.env('auth_verification', authVerification);
+                  cy.log(`✅ auth_verification=${authVerification}`);
+
                   const appSession = getAppSession(response);
                   const date = new Date();
                   Cypress.env('cookieTime', date);
                   Cypress.env('appSession', appSession);
+
                   return cy.wrap(null);
                 });
             });
@@ -67,8 +61,10 @@ Cypress.Commands.add('ssoLogin', () => {
     });
 });
 
+// ===== Optional Session Wrapper =====
+
 Cypress.Commands.add('ssoLoginOnce', () => {
-  const sessionTimeout = 25 * 60 * 1000;
+  const sessionTimeout = 25 * 60 * 1000; // 25 minutes
   const cookieTime = Cypress.env('cookieTime');
   const appSession = Cypress.env('appSession');
 
@@ -86,22 +82,11 @@ Cypress.Commands.add('ssoLoginOnce', () => {
   });
 });
 
-// ===== Helper functions =====
+// ===== Helper Functions =====
 
 const getLocationUrl = response => {
   const responseHeaders = response.allRequestResponses?.[0]?.['Response Headers'];
   return responseHeaders?.['location'];
-};
-
-const getAuthVerification = response => {
-  const cookieHeader = response.headers['set-cookie']?.[0];
-  console.log('🔍 set-cookie:', cookieHeader);
-
-  if (!cookieHeader) {
-    throw new Error('❌ auth_verification cookie not found');
-  }
-
-  return extractValueFromCookie(cookieHeader, 'auth_verification');
 };
 
 const getLoc = response => {
@@ -120,6 +105,17 @@ const getAppSession = response => {
   return response.headers['set-cookie'];
 };
 
+const getAuthVerification = response => {
+  const setCookies = response.headers['set-cookie'];
+  const cookieHeader = setCookies?.find(c => c.includes('auth_verification='));
+
+  if (!cookieHeader) {
+    throw new Error('❌ auth_verification cookie not found in Set-Cookie');
+  }
+
+  return extractValueFromCookie(cookieHeader, 'auth_verification');
+};
+
 const extractValueFromCookie = (cookie, key) => {
   const [value] =
     cookie
@@ -128,25 +124,3 @@ const extractValueFromCookie = (cookie, key) => {
       ?.split('=') || [];
   return value;
 };
-
-// ===== Configs & Utilities =====
-
-beforeEach(() => {
-  cy.document({ timeout: 30000 }).should('have.property', 'readyState', 'complete');
-});
-
-Cypress.config('defaultCommandTimeout', 10000);
-
-// Headless log support
-Cypress.Commands.overwrite('log', function (log, ...args) {
-  if (Cypress.browser.isHeadless) {
-    return cy.task('log', args, { log: false }).then(() => log(...args));
-  } else {
-    console.log(...args);
-    return log(...args);
-  }
-});
-
-Cypress.Commands.add('stablizeApp', () => {
-  cy.wait(2000);
-});
