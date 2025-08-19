@@ -1,0 +1,8 @@
+const { Then } = require('cypress-cucumber-preprocessor/steps');
+const ticketsPage = require('../../../../pom/pages/TicketsPage');
+
+Then("I should see an error message for edit type {string}", (msg) => {
+  const filename = Cypress.env('intentValidationFilename') || '';
+  const expectedField = 'edit'; // stays the same for all "edit type" cases
+  return ticketsPage.intentValidation(filename, msg, expectedField);
+});
