@@ -1,0 +1,193 @@
+// cypress.config.js
+const { defineConfig } = require('cypress');
+const fs = require('fs');
+const path = require('path');
+const ExcelJS = require('exceljs');
+const { queryDb } = require('./cypress/plugins/ConnectDB.cjs');
+const cucumber = require('cypress-cucumber-preprocessor').default;
+const dayjs = require('dayjs');
+
+// ---- helpers ----
+async function openWb(p) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(p);
+  return wb;
+}
+
+// Friendly keys you’ll use in steps -> exact header text in your template (from your screenshot)
+const HEADER_MAP = {
+  pdlmRow: 'PDLMRow',
+  editType: 'EditType',
+  bomAnalystFlag: 'BOMAnalystFlag',
+  listIds: 'ListIDs',
+  lobCodes: 'LOBCodes',
+  excLobCodes: 'EXCLOBCodes',
+  pexLobCodes: 'PEXLOBCodes',
+  effectiveDate: 'EffectiveDate',
+  thruDate: 'ThruDate',
+  applyMonthly: 'ApplyMonthly?',
+  productType: 'ProductType (NDC, GPN)',
+  productId: 'ProductID',
+};
+
+// Convert a row object (camelCase keys) to an array matching header order
+function rowArrayForHeaders(headerCells, rowObj) {
+  return headerCells.map((headerText) => {
+    const pair = Object.entries(HEADER_MAP).find(([, h]) => h === headerText);
+    if (!pair) return '';                       // leave blank if unmapped (you can extend HEADER_MAP later)
+    const key = pair[0];
+    return rowObj[key] ?? '';
+  });
+}
+
+// Allow ENV file for local defaults
+const envJson = JSON.parse(fs.readFileSync('cypress.env.json', 'utf-8'));
+
+module.exports = defineConfig({
+  // NOTE: the correct spelling is defaultCommandTimeout
+  defaultCommandTimeout: 300000,
+
+  reporter: 'cypress-mochawesome-reporter',
+  reporterOptions: {
+    charts: true,
+    json: true,
+    saveJson: true,
+    reportDir: process.env.REPORT_PATH,
+    overwrite: false,
+    reportFilename: 'index',
+    reportPageTitle: 'CAT Automation Report',
+    reportTitle: 'CAT Automation Regression Report',
+    inlineAssets: true,
+    html: true,
+    saveHtml: true,
+    embeddedScreenshots: true,
+    saveAllAttempts: false,
+  },
+
+  'cypress-cucumber-preprocessor': {
+    nonGlobalStepDefinitions: true,
+    stepDefinitions: './cypress/e2e/stepdefinitions',
+  },
+
+  e2e: {
+    supportFile: 'cypress/support/e2e.js',
+    chromeWebSecurity: false,
+    experimentalRunAllSpecs: true,
+    experimentalSessionAndOrigin: true,
+
+    setupNodeEvents(on, config) {
+      console.log('Cypress REPORT_PATH:', process.env.REPORT_PATH);
+      on('file:preprocessor', cucumber());
+      require('cypress-mochawesome-reporter/plugin')(on);
+
+      // ---- env-driven knobs for Excel generation ----
+      const templatePath =
+        config.env.INTENT_TEMPLATE ||
+        path.join(process.cwd(), 'cypress', 'fixtures', 'intentTemplate.xlsx');
+      const outDir =
+        config.env.INTENT_OUT_DIR || path.join(process.cwd(), 'cypress', 'downloads');
+      const sheetName = config.env.INTENT_SHEET || 'CAT Automated';
+      const HEADER_ROW = Number(config.env.INTENT_HEADER_ROW || 9); // per your sheet
+
+      // Merge ALL tasks in one handler (prevents overwrite)
+      const tasks = {
+        // ----- existing tasks -----
+        log(args) {
+          console.log(...args);
+          return null;
+        },
+
+        queryDb({ query, values }) {
+          return queryDb(query, values);
+        },
+
+        async readErrorExcelExcelJS(fileName) {
+          const filePath = path.join(__dirname, 'cypress/downloads', fileName);
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.readFile(filePath);
+
+          const sheet =
+            workbook.getWorksheet('ValidationErrors') || workbook.worksheets[0];
+          const rows = [];
+          sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (rowNumber === 1) return;
+            rows.push({
+              ticketId: row.getCell(1).value,
+              field: row.getCell(4).value,
+              errorMessage: row.getCell(6).value,
+            });
+          });
+
+          return rows;
+        },
+
+        // ----- NEW: build a copy from template and append ONE row -----
+        async 'intent:makeFile'(args = {}) {
+          const rows = args.row ? [args.row] : [];
+          const outName = args.outName || `Intent_${Date.now()}.xlsx`;
+          const outPath = path.join(outDir, outName);
+
+          fs.copyFileSync(templatePath, outPath);
+
+          const wb = await openWb(outPath);
+          const ws = wb.getWorksheet(sheetName);
+          if (!ws) throw new Error(`Sheet "${sheetName}" not found in template`);
+
+          const headerCells = ws.getRow(HEADER_ROW).values.slice(1); // ExcelJS index 0 is empty
+          for (const r of rows) {
+            const data = rowArrayForHeaders(headerCells, r);
+            ws.addRow(['', ...data]); // keep Column A blank for styling, like your template
+          }
+
+          await wb.xlsx.writeFile(outPath);
+          return outPath; // absolute path to upload
+        },
+
+        // ----- NEW: build a copy from template and append MANY rows -----
+        async 'intent:makeFileMany'(args = {}) {
+          const rows = Array.isArray(args.rows) ? args.rows : [];
+          const outName = args.outName || `Intent_${Date.now()}.xlsx`;
+          const outPath = path.join(outDir, outName);
+
+          fs.copyFileSync(templatePath, outPath);
+
+          const wb = await openWb(outPath);
+          const ws = wb.getWorksheet(sheetName);
+          if (!ws) throw new Error(`Sheet "${sheetName}" not found in template`);
+
+          const headerCells = ws.getRow(HEADER_ROW).values.slice(1);
+          for (const r of rows) {
+            const data = rowArrayForHeaders(headerCells, r);
+            ws.addRow(['', ...data]);
+          }
+
+          await wb.xlsx.writeFile(outPath);
+          return outPath;
+        },
+      };
+
+      on('task', tasks);
+      return config;
+    },
+
+    include: ['./node_modules/cypress', 'cypress/**/*.js'],
+    specPattern: 'cypress/e2e/**/*.feature',
+    env: {
+      BASE_URL: process.env.BASE_URL,
+      uploadFileName: envJson.uploadFileName,
+      TAGS: 'not @ignore',
+      // Optional defaults for Excel generation (can be overridden on CLI)
+      // INTENT_TEMPLATE: 'cypress/fixtures/intentTemplate.xlsx',
+      // INTENT_SHEET: 'CAT Automated',
+      // INTENT_HEADER_ROW: 9,
+      // INTENT_OUT_DIR: 'cypress/downloads',
+    },
+    retries: 1,
+  },
+
+  component: {
+    setupNodeEvents(on, config) {
+      return require('./cypress/plugins/index.js')(on, config);
+    },
+  },
+});
