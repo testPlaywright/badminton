@@ -1,0 +1,11 @@
+import { Given } from "@badeball/cypress-cucumber-preprocessor";
+
+Given("I prepare intent row", (table) => {
+  const row = {};
+  table.rows().forEach(([k, v]) => (row[k] = v));   // 2-col table
+  cy.wrap(row, { log: false }).as("intentRow");
+});
+
+Given("I prepare multiple intent rows", (table) => {
+  cy.wrap(table.hashes(), { log: false }).as("intentRows"); // header table
+});
