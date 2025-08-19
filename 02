@@ -1,0 +1,18 @@
+const path = require('path');
+
+uploadFile(filePath) {
+  const fileName = path.basename(filePath);   // "CLINICAL_INTENT.xlsx"
+  const downloadPath = `cypress/downloads/${fileName}`;
+
+  cy.readFile(downloadPath, null).then((fileContent) => {
+    cy.get('input[type="file"]').selectFile(
+      {
+        contents: fileContent,
+        fileName: fileName,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        lastModified: Date.now()
+      },
+      { force: true }
+    );
+  });
+}
