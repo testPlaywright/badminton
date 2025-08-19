@@ -1,0 +1,30 @@
+createTicketFlow(filename) {
+  const path = require('path');
+  const outName = path.basename(
+    filename || Cypress.env('uploadFileName') || 'CLINICAL_INTENT.xlsx'
+  );
+
+  cy.get('@intentRow', { log: false })
+    .then(r => r || null)
+    .then(r => {
+      if (r) return cy.task('intent:makeFile', { row: r, outName, filename: outName });
+      return cy.get('@intentRows', { log: false })
+        .then(rows => rows || [])
+        .then(rows => rows.length
+          ? cy.task('intent:makeFileMany', { rows, outName, filename: outName })
+          : outName
+        );
+    })
+    .then((taskResult) => {
+      const producedName =
+        typeof taskResult === 'string'
+          ? path.basename(taskResult)
+          : (taskResult.fileName || taskResult.filename || outName);
+
+      cy.log('Intent file created:', producedName);
+      this.openUploadDialog();
+      this.uploadFile(taskResult);  // <-- pass THROUGH (string or {fileName, fullPath})
+      this.fillTicketForm();
+      this.getTicketID();
+    });
+}
