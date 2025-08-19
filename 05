@@ -1,0 +1,77 @@
+uploadFile(filePathOrName) {
+    const fileName = path.basename(filePathOrName || '');
+    const dlPath   = `cypress/downloads/${fileName}`;
+    const fxPath   = `cypress/fixtures/${fileName}`;
+    const ext      = (fileName.split('.').pop() || '').toLowerCase();
+    const mime =
+      ext === 'xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : ext === 'xls'
+        ? 'application/vnd.ms-excel'
+        : ext === 'csv'
+        ? 'text/csv'
+        : 'application/octet-stream';
+
+    // Try downloads first; if not there, fall back to fixtures
+    return cy.readFile(dlPath, null, { log: false })
+      .then(
+        buf => buf,
+        ()  => cy.readFile(fxPath, null, { log: false })
+      )
+      .then((fileContent) => {
+        cy.get('input[type="file"]').selectFile(
+          {
+            contents: fileContent,
+            fileName,
+            mimeType: mime,
+            lastModified: Date.now()
+          },
+          { force: true }
+        );
+      });
+  }
+
+  // ---- same logic as yours, but:
+  // a) builds the XLSX via tasks
+  // b) supports either { outName } or { filename } in the task payloads
+  // c) tolerates different task return shapes (string or {fileName/filename/fullPath})
+  createTicketFlow(filename) {
+    const outName = path.basename(
+      filename || Cypress.env('uploadFileName') || 'CLINICAL_INTENT.xlsx'
+    );
+
+    cy.get('@intentRow', { log: false })
+      .then(row => row || null)
+      .then(row => {
+        if (row) {
+          // send both keys so it works whether your task expects `outName` or `filename`
+          return cy.task('intent:makeFile', { row, outName, filename: outName });
+        }
+        // Optional multi-row support (kept from your code)
+        return cy.get('@intentRows', { log: false })
+          .then(rows => rows || null)
+          .then(rows => rows && rows.length
+            ? cy.task('intent:makeFileMany', { rows, outName, filename: outName })
+            : outName // no aliases -> just use the provided/derived name
+          );
+      })
+      .then((result) => {
+        // Normalize different possible returns:
+        // - string like 'CLINICAL_INTENT.xlsx'
+        // - { fileName, filename, fullPath }
+        const producedName =
+          typeof result === 'string'
+            ? path.basename(result)
+            : path.basename(result?.fileName || result?.filename || outName);
+
+        cy.log('Intent file created:', producedName);
+
+        this.openUploadDialog();
+        this.uploadFile(producedName);   // reads from downloads (fallback fixtures)
+        this.fillTicketForm();
+        this.getTicketID();
+      });
+  }
+
+  // ...
+}
