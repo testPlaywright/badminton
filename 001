@@ -1,0 +1,28 @@
+// at top of file (if not already)
+const path = require('path');
+
+class TicketsPage {
+  // ...
+
+  uploadFile(absolutePath) {
+    const fileNameOnly = path.basename(absolutePath);
+    const mime =
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    // Read the generated XLSX as a Buffer and pass it to selectFile with a clean filename
+    cy.readFile(absolutePath, { encoding: null, log: false }).then((buf) => {
+      cy.get('input[type="file"]').selectFile(
+        {
+          contents: buf,          // Buffer
+          fileName: fileNameOnly, // <- server will see ONLY this name
+          mimeType: mime,
+          lastModified: Date.now(),
+        },
+        { force: true }
+      );
+    });
+  }
+
+  // ...
+}
+module.exports = new TicketsPage();
