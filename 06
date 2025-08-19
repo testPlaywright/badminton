@@ -1,0 +1,53 @@
+// cypress/e2e/stepdefinitions/intentRows.steps.js
+import { Given } from 'cypress-cucumber-preprocessor/steps';
+
+/**
+ * Normalizes Example/DataTable keys to EXACTLY match your template headers.
+ * (From your screenshots: pdlmRow, EditType, ListIDs, LOBCodes, ProductType, ProductID, ...)
+ */
+function normalizeToTemplateKeys(k) {
+  const key = String(k).trim().toLowerCase();
+  switch (key) {
+    case 'pdlmrow':     return 'pdlmRow';
+    case 'edittype':    return 'EditType';
+    case 'listids':     return 'ListIDs';
+    case 'lobcodes':    return 'LOBCodes';
+    case 'producttype': return 'ProductType';
+    case 'productid':   return 'ProductID';
+    // add more mappings if your template has more columns
+    default:            return k; // fallback: leave as-is
+  }
+}
+
+/**
+ * Single row from Scenario Outline/DataTable.
+ * Usage in feature:
+ *   Given I prepare intent row from outline
+ *     | pdlmRow | <pdlmRow> |
+ *     | editType| <editType>|
+ *     | listIds | <listIds> |
+ *     | lobCodes| <lobCodes>|
+ *     | productType | <productType> |
+ *     | productId   | <productId>   |
+ */
+Given('I prepare intent row from outline', (table) => {
+  const row = {};
+  table.rows().forEach(([k, v]) => {
+    row[normalizeToTemplateKeys(k)] = v;
+  });
+  cy.wrap(row, { log: false }).as('intentRow'); // <-- used by TicketsPage.createTicketFlow
+});
+
+/**
+ * Multiple rows variant (if/when you need it)
+ */
+Given('I prepare multiple intent rows', (table) => {
+  const rows = table.hashes().map(obj => {
+    const out = {};
+    Object.entries(obj).forEach(([k, v]) => {
+      out[normalizeToTemplateKeys(k)] = v;
+    });
+    return out;
+  });
+  cy.wrap(rows, { log: false }).as('intentRows');
+});
