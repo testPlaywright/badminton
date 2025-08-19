@@ -1,0 +1,21 @@
+// cypress/e2e/stepdefinitions/intentValidations.steps.js
+import { When, Then } from 'cypress-cucumber-preprocessor/steps';
+import TicketsPage from '../../pom/pages/TicketsPage';
+
+// Generate XLSX (via tasks), upload, fill, capture ID
+When('I create a ticket with file {string}', (outFile) => {
+  TicketsPage.createTicketFlow(outFile);
+});
+
+// Convenience overload (uses env or default name inside page object)
+When('I create a ticket', () => {
+  TicketsPage.createTicketFlow();
+});
+
+// Match your parseExcel() which filters by field includes(expectedErrorValue)
+// For EditType validations, pass 'edittype' to match case-insensitively.
+Then('I should see an error message for edit type {string}', (msg) => {
+  const filename = Cypress.env('uploadFileName') || 'CLINICAL_INTENT.xlsx';
+  const expectedField = 'edittype';
+  return TicketsPage.intentValidation(filename, msg, expectedField);
+});
