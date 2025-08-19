@@ -1,0 +1,21 @@
+createTicketFlow(filename) {
+  cy.get("@intentRows", { log: false })
+    .then(rows => rows || null)
+    .then((rows) => {
+      if (rows && rows.length) {
+        return cy.task("intent:makeFileMany", { rows, outName: "Intent_Run.xlsx" });
+      }
+      return cy.get("@intentRow", { log: false })
+        .then(row => row || null)
+        .then((row) => row
+          ? cy.task("intent:makeFile", { row, outName: "Intent_Run.xlsx" })
+          : filename
+        );
+    })
+    .then((fileToUpload) => {
+      this.openUploadDialog();
+      this.uploadFile(fileToUpload);
+      this.fillTicketForm();
+      this.getTicketID();
+    });
+}
