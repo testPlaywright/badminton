@@ -1,0 +1,32 @@
+// cypress/pom/pages/TicketsPage.js
+class TicketsPage {
+  // ...your other methods (visit, searchTicket, etc.)
+
+  uploadFile(absolutePath) {
+    cy.get('input[type="file"]').selectFile(absolutePath, { force: true });
+  }
+
+  createTicketFlow(filename) {
+    const outName = Cypress.env('uploadFileName') || 'Intent_Run.xlsx';
+
+    cy.get('@intentRow', { log: false })
+      .then(row => row || null)
+      .then((row) => {
+        if (row) return cy.task('intent:makeFile', { row, outName });
+        // Optional multi-row support if you ever use it
+        return cy.get('@intentRows', { log: false })
+          .then(rows => rows || null)
+          .then((rows) => rows && rows.length
+            ? cy.task('intent:makeFileMany', { rows, outName })
+            : filename);
+      })
+      .then((fileToUpload) => {
+        this.openUploadDialog();
+        this.uploadFile(fileToUpload);   // absolute path, NOT fixtures
+        this.fillTicketForm();
+        this.getTicketID();
+      });
+  }
+}
+
+module.exports = new TicketsPage();
