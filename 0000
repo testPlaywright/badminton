@@ -1,0 +1,183 @@
+// cypress.config.js
+const { defineConfig } = require('cypress');
+const fs = require('fs');
+const path = require('path');
+const ExcelJS = require('exceljs'); // kept for your readError task
+const XlsxPopulate = require('xlsx-populate');
+const { queryDb } = require('./cypress/plugins/ConnectDB.cjs');
+const cucumber = require('cypress-cucumber-preprocessor').default;
+
+// ---------- helpers ----------
+async function openWbExcelJS(p) { const wb = new ExcelJS.Workbook(); await wb.xlsx.readFile(p); return wb; }
+function ensureDir(dirPath) { if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true }); }
+function normalizeOutName(name) { let n = name || 'Intent_Run.xlsx'; if (!/\.(xlsx|xlsm)$/i.test(n)) n += '.xlsx'; return n; }
+
+// Map camelCase test keys -> exact visible header text
+const HEADER_MAP = {
+  pdlmRow: 'PDLMRow',
+  editType: 'EditType',
+  bomAnalystFlag: 'BOMAnalystFlag',
+  listIds: 'ListIDs',
+  lobCodes: 'LOBCodes',
+  excLobCodes: 'EXCLOBCodes',
+  pexLobCodes: 'PEXLOBCodes',
+  effectiveDate: 'EffectiveDate',
+  thruDate: 'ThruDate',
+  applyMonthly: 'ApplyMonthly?',
+  productType: 'ProductType (NDC, GPN)',
+  productId: 'ProductID'
+};
+
+// Read header texts from the template header row
+function readHeaderTexts(sheet, headerRow) {
+  const lastCol = sheet.usedRange().endCell().columnNumber();
+  const vals = sheet.range(headerRow, 1, headerRow, lastCol).value()[0];
+  return vals.map(v => (v == null ? '' : String(v).trim()));
+}
+function firstEmptyDataRow(sheet, startRow, headerCount) {
+  let r = startRow;
+  while (true) {
+    let empty = true;
+    for (let c = 1; c <= headerCount; c++) {
+      const v = sheet.cell(r, c).value();
+      if (v !== null && v !== undefined && String(v).trim() !== '') { empty = false; break; }
+    }
+    if (empty) return r;
+    r++;
+  }
+}
+function rowArrayForHeaders(headerTexts, rowObj) {
+  return headerTexts.map(h => {
+    const pair = Object.entries(HEADER_MAP).find(([, text]) => text === h);
+    if (!pair) return '';
+    const key = pair[0];
+    return rowObj[key] ?? '';
+  });
+}
+
+// ---------- config ----------
+const envJson = JSON.parse(fs.readFileSync('cypress.env.json', 'utf-8'));
+
+module.exports = defineConfig({
+  defaultCommandTimeout: 300000,
+
+  reporter: 'cypress-mochawesome-reporter',
+  reporterOptions: {
+    charts: true, json: true, saveJson: true,
+    reportDir: process.env.REPORT_PATH,
+    overwrite: false, reportFilename: 'index',
+    reportPageTitle: 'CAT Automation Report',
+    reportTitle: 'CAT Automation Regression Report',
+    inlineAssets: true, html: true, saveHtml: true,
+    embeddedScreenshots: true, saveAllAttempts: false
+  },
+
+  'cypress-cucumber-preprocessor': {
+    nonGlobalStepDefinitions: true,
+    stepDefinitions: './cypress/e2e/stepdefinitions'
+  },
+
+  e2e: {
+    supportFile: 'cypress/support/e2e.js',
+    chromeWebSecurity: false,
+    experimentalRunAllSpecs: true,
+    experimentalSessionAndOrigin: true,
+
+    setupNodeEvents(on, config) {
+      on('file:preprocessor', cucumber());
+      require('cypress-mochawesome-reporter/plugin')(on);
+
+      const templatePath = config.env.INTENT_TEMPLATE || path.join(process.cwd(), 'cypress', 'fixtures', 'intentTemplate.xlsx');
+      const outDir = config.env.INTENT_OUT_DIR || path.join(process.cwd(), 'cypress', 'downloads');
+      const sheetName = config.env.INTENT_SHEET || 'CAT Automated';
+      const HEADER_ROW = Number(config.env.INTENT_HEADER_ROW || 9);
+      const FIRST_DATA_ROW = Number(config.env.INTENT_FIRST_DATA_ROW || (HEADER_ROW + 1));
+
+      const tasks = {
+        // --- logging & DB (kept) ---
+        log(args) { console.log(...args); return null; },
+        queryDb({ query, values }) { return queryDb(query, values); },
+
+        // --- your existing Excel read for ValidationErrors ---
+        async readErrorExcelExcelJS(fileName) {
+          const filePath = path.join(__dirname, 'cypress/downloads', fileName);
+          const workbook = await openWbExcelJS(filePath);
+          const sheet = workbook.getWorksheet('ValidationErrors') || workbook.worksheets[0];
+          const rows = [];
+          sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            if (rowNumber === 1) return;
+            rows.push({
+              ticketId: row.getCell(1).value,
+              field: row.getCell(4).value,
+              errorMessage: row.getCell(6).value
+            });
+          });
+          return rows;
+        },
+
+        // --- NEW: make file with ONE row (preserves formatting) ---
+        async 'intent:makeFile'(args = {}) {
+          ensureDir(outDir);
+          const outName = normalizeOutName(args.outName || config.env.uploadFileName);
+          const outPath = path.join(outDir, outName);
+          if (!fs.existsSync(templatePath)) throw new Error(`Template not found: ${templatePath}`);
+
+          const wb = await XlsxPopulate.fromFileAsync(templatePath);
+          const sheet = wb.sheet(sheetName);
+          if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
+
+          const headers = readHeaderTexts(sheet, HEADER_ROW);
+          const writeRow = firstEmptyDataRow(sheet, FIRST_DATA_ROW, headers.length);
+          const data = rowArrayForHeaders(headers, args.row || {});
+
+          for (let c = 1; c <= headers.length; c++) sheet.cell(writeRow, c).value(data[c - 1]);
+
+          await wb.toFileAsync(outPath);
+          return outPath;
+        },
+
+        // --- NEW: make file with MANY rows (preserves formatting) ---
+        async 'intent:makeFileMany'(args = {}) {
+          ensureDir(outDir);
+          const outName = normalizeOutName(args.outName || config.env.uploadFileName);
+          const outPath = path.join(outDir, outName);
+          if (!fs.existsSync(templatePath)) throw new Error(`Template not found: ${templatePath}`);
+
+          const wb = await XlsxPopulate.fromFileAsync(templatePath);
+          const sheet = wb.sheet(sheetName);
+          if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
+
+          const headers = readHeaderTexts(sheet, HEADER_ROW);
+          let writeRow = firstEmptyDataRow(sheet, FIRST_DATA_ROW, headers.length);
+
+          for (const r of (args.rows || [])) {
+            const data = rowArrayForHeaders(headers, r);
+            for (let c = 1; c <= headers.length; c++) sheet.cell(writeRow, c).value(data[c - 1]);
+            writeRow++;
+          }
+
+          await wb.toFileAsync(outPath);
+          return outPath;
+        }
+      };
+
+      on('task', tasks);
+      return config;
+    },
+
+    include: ['./node_modules/cypress', 'cypress/**/*.js'],
+    specPattern: 'cypress/e2e/**/*.feature',
+    env: {
+      BASE_URL: process.env.BASE_URL,
+      uploadFileName: envJson.uploadFileName || 'Intent_Run.xlsx',
+      TAGS: 'not @ignore'
+    },
+    retries: 1
+  },
+
+  component: {
+    setupNodeEvents(on, config) {
+      return require('./cypress/plugins/index.js')(on, config);
+    }
+  }
+});
