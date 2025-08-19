@@ -1,0 +1,20 @@
+const { Then } = require('cypress-cucumber-preprocessor/steps');
+const ticketsPage = require('../../../../pom/pages/TicketsPage');
+
+const filename = Cypress.env('intentValidationFilename') || '';
+
+Then('I should see an error message for edit type Field is Required.', () => {
+  // Row that will be written into the Excel before upload
+  cy.wrap({
+    pdlmRow: '10',
+    editType: '',                 // blank triggers the error
+    listIds: 'LIST1',
+    lobCodes: 'MPL1',
+    productType: 'GPN',
+    productId: '7000000001',
+  }, { log: false }).as('intentRow');
+
+  const value = 'Field is Required.';
+  const expectedErrorValue = 'edit';
+  return ticketsPage.intentValidation(filename, value, expectedErrorValue);
+});
