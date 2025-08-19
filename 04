@@ -1,0 +1,230 @@
+import { expect, should } from 'chai';
+import 'cypress-file-upload';
+import PageNavigator from '../../e2e/stepdefinitions/common/pageNavigator';
+const path = require('path');
+
+class TicketsPage {
+  constructor() {
+    this.ticketID = null;
+  }
+
+  visit() {
+    PageNavigator.visitWithRetry('/tickets', {
+      selector: '[href="/tickets"]'
+    });
+  }
+
+  openUploadDialog() {
+    cy.get('[data-cy="tickets-create-button"]').click();
+  }
+
+    uploadFile(filePath) {
+  const fileName = path.basename(filePath);   // "CLINICAL_INTENT.xlsx"
+  const downloadPath = `cypress/downloads/${fileName}`;
+
+  cy.readFile(downloadPath, null).then((fileContent) => {
+    cy.get('input[type="file"]').selectFile(
+      {
+        contents: fileContent,
+        fileName: fileName,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        lastModified: Date.now()
+      },
+      { force: true }
+    );
+  });
+}
+
+
+  closeDialogBox() {
+    cy.get('svg[data-testid="CloseIcon"]').first().click();
+  }
+
+  fillTicketForm() {
+    cy.get('button[aria-label="Open"]').click();
+    cy.contains('li', 'RXC').click();
+    cy.get('input[name="sourceSystemTicket"]')
+      .click()
+      .type('01{enter}');
+    cy.get('input[name="description"]')
+      .click()
+      .type('test-ticket{enter}');
+    cy.get('body').then($body => {
+      const $btn = $body.find('button[type="submit"]');
+      if ($btn.length) {
+        cy.wrap($btn).click({ force: true });
+      } else {
+        cy.log('🔁 Submit button not found, skipping click.');
+      }
+    });
+  }
+
+  getTicketID() {
+    cy.get('div.MuiAlert-message')
+      .invoke('text')
+      .then(text => {
+        cy.writeFile('cypress/fixtures/ticketData.json', {
+          ticketID: text.trim()
+        });
+      });
+  }
+  createTicketFlow(filename) {
+
+
+    cy.get('@intentRow', { log: false })
+      .then(row => row || null)
+      .then(row => {
+        if (row) return cy.task('intent:makeFile', { row, filename });
+        // Optional multi-row support if you ever use it
+        return cy
+          .get('@intentRows', { log: false })
+          .then(rows => rows || null)
+          .then(rows =>
+            rows && rows.length
+              ? cy.task('intent:makeFileMany', { rows, filename })
+              : filename
+          );
+      })
+      .then(filename => {
+        cy.log('Intent file created:', filename);
+        this.openUploadDialog();
+        this.uploadFile(filename); // absolute path, NOT fixtures
+        this.fillTicketForm();
+        this.getTicketID();
+      });
+  }
+
+  updateTicketFlow() {
+    return cy.fixture('ticketData.json').then(({ ticketID }) => {
+      const match = ticketID.match(/([A-Z]+)(\d+)/);
+      if (match) {
+        this.ticketPrefix = match[1];
+        this.ticketNumber = match[2];
+        this.ticketID = `${this.ticketPrefix}${this.ticketNumber}`;
+        cy.log('Ticket ID is: ' + this.ticketID);
+      } else {
+        throw new Error('Invalid ticketID Format');
+      }
+    });
+  }
+
+  searchTicketID() {
+    cy.get('#saved-search-filter-item-field-ticketId')
+      .click()
+      .type(this.ticketID);
+    cy.get(
+      'button.MuiButtonBase-root.MuiButton-root.MuiButton-outlined'
+    )
+      .contains('Search')
+      .click();
+  }
+
+  clickSearchedTicket() {
+    cy.get('a.MuiTableRow-root.MuiTableRow-hover.css-1kg9art td')
+      .first()
+      .click();
+  }
+
+  clickResetButton() {
+    cy.get(
+      'button.MuiButtonBase-root.MuiButton-root.MuiButton-outlined'
+    )
+      .contains('Reset')
+      .click();
+  }
+
+  clickSaveView() {
+    cy.get(
+      'button.MuiButtonBase-root.MuiButton-root.MuiButton-outlined'
+    )
+      .contains('Save View')
+      .click();
+    cy.get('input[name="savedSearchName"]').type('Test');
+    cy.get('button.MuiButtonBase-root.MuiButton-root.MuiButton-text')
+      .contains('Create')
+      .click();
+  }
+
+  searchTicketStatus() {
+    cy.get('#saved-search-filter-item-field-ticketStatus').click();
+    cy.contains('li', 'Completed').click();
+    cy.get(
+      'button.MuiButtonBase-root.MuiButton-root.MuiButton-outlined'
+    )
+      .contains('Search')
+      .click();
+  }
+  clickCloseButton() {
+    cy.get('[data-cy="tickets-Close-Disable-button"]').click();
+    cy.get('textarea[name="closedNote"]').type('test-close');
+    cy.get('[data-cy="tickets-Close-submit-button"]').click();
+  }
+
+  clickCopyButton() {
+    cy.get('[data-cy="tickets-Copy-button"]').click();
+  }
+  clickCopyBtnInPrompt() {
+    cy.get('[data-cy="tickets-Copy-submit-button"]').click();
+  }
+
+  closeTicket() {
+    this.visit();
+    this.searchTicketStatus();
+    this.clickSearchedTicket();
+    this.clickCloseButton();
+  }
+
+  copyTicket(filename) {
+    this.updateTicketFlow().then(() => {
+      this.searchTicketID();
+      this.clickSearchedTicket();
+    });
+    this.clickCopyButton();
+    this.uploadFile(filename);
+    this.clickCopyBtnInPrompt();
+  }
+  downloadIntentXlsx() {
+    cy.reload();
+    cy.get('a[href*="intent_validation_errors.xlsx"]').click();
+    cy.wait(4000);
+  }
+
+  parseExcel(value, expectedErrorValue) {
+    return this.updateTicketFlow().then(() => {
+      const fullFileName = `${this.ticketID}_intent_validation_errors.xlsx`;
+      cy.task('readErrorExcelExcelJS', fullFileName).then(rows => {
+        const errorsForField = rows
+          .filter(r =>
+            r.field.toLowerCase().includes(expectedErrorValue)
+          )
+          .map(r => r.errorMessage.trim());
+        console.log('Filtered Errors:', errorsForField);
+      });
+    });
+  }
+
+  intentValidation(filename, value, expectedErrorValue) {
+    this.createTicketFlow(filename);
+    this.visit();
+    cy.wait(2000);
+    this.updateTicketFlow().then(() => {
+      this.searchTicketID();
+      this.clickSearchedTicket();
+    });
+    this.downloadIntentXlsx();
+    return this.parseExcel(value, expectedErrorValue);
+  }
+
+  getClosedStatusElement() {
+    return cy.get('[aria-label="CLOSED"]', { timeout: 10000 });
+  }
+
+  getAlertElement() {
+    return cy.get('div.MuiAlert-message', { timeout: 10000 });
+  }
+
+  //     this.getClosedStatusElement()
+  // } // Full encapsulation method for verifying ticket closure
+}
+
+export default new TicketsPage();
