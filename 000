@@ -1,0 +1,24 @@
+createTicketFlow(filename) {
+    const outName = Cypress.env('uploadFileName') || 'CLINICAL_INTENT.xlsx';
+
+    cy.get('@intentRow', { log: false })
+      .then(row => row || null)
+      .then((row) => {
+        if (row) return cy.task('intent:makeFile', { row, outName });
+        // Optional: support multiple rows if you later add a DataTable step
+        return cy.get('@intentRows', { log: false })
+          .then(rows => rows || null)
+          .then(rows =>
+            (rows && rows.length)
+              ? cy.task('intent:makeFileMany', { rows, outName })
+              : filename
+          );
+      })
+      .then((fileToUpload) => {
+        this.openUploadDialog();
+        this.uploadFile(fileToUpload);
+        this.fillTicketForm();
+        this.getTicketID();
+      });
+  }
+
