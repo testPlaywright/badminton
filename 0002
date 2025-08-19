@@ -1,0 +1,32 @@
+// TicketsPage.js  (keep the rest of the class as-is)
+
+class TicketsPage {
+  // ...existing helpers: openUploadDialog, uploadFile, fillTicketForm, getTicketID
+
+  /**
+   * Simple create-ticket flow:
+   * - picks file from fixtures (filename argument wins)
+   * - else falls back to CYPRESS env var uploadFileName
+   * - else uses a sane default
+   */
+  createTicketFlow(filename) {
+    const chosen =
+      filename ||
+      Cypress.env('uploadFileName') ||
+      'clinical_intent_blank.xlsx'; // <- change default if you like
+
+    // If your this.uploadFile expects a fixtures-relative name, use `chosen`.
+    // If it expects an absolute path, pass `cypress/fixtures/${chosen}` instead.
+    const pathForUpload =
+      this.uploadFileAcceptsAbsolutePath
+        ? `cypress/fixtures/${chosen}`
+        : chosen;
+
+    this.openUploadDialog();
+    this.uploadFile(pathForUpload);   // <- no plugin tasks, just upload
+    this.fillTicketForm();
+    this.getTicketID();
+  }
+}
+
+module.exports = new TicketsPage();
