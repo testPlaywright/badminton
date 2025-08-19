@@ -1,0 +1,4 @@
+uploadFile(absolutePath) {
+  // absolutePath is "cypress/downloads/Intent_Run.xlsx" (full absolute on disk)
+  cy.get('input[type="file"]').selectFile(absolutePath, { force: true });
+}
