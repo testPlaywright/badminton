@@ -1,0 +1,48 @@
+// NORMALIZES: accepts string filename, absolute path, or {fileName, fullPath}
+uploadFile(any) {
+  const path = require('path');
+
+  // If task returned an object
+  const fullPathFromTask =
+    (typeof any === 'object' && any && any.fullPath) ? String(any.fullPath) : null;
+  const nameFromTask =
+    (typeof any === 'object' && any && (any.fileName || any.filename))
+      ? String(any.fileName || any.filename)
+      : (typeof any === 'string' ? path.basename(any) : '');
+
+  const isAbs = !!(fullPathFromTask && path.isAbsolute(fullPathFromTask));
+  const fileName = nameFromTask || (isAbs ? path.basename(fullPathFromTask) : '');
+
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  const mime =
+    ext === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
+    ext === 'xls'  ? 'application/vnd.ms-excel' :
+    ext === 'csv'  ? 'text/csv' :
+                     'application/octet-stream';
+
+  // 1) If we got an absolute path from the task, read it directly
+  if (isAbs) {
+    return cy.readFile(fullPathFromTask, null, { log: false }).then((fileContent) => {
+      cy.get('input[type="file"]').selectFile(
+        { contents: fileContent, fileName: path.basename(fullPathFromTask), mimeType: mime, lastModified: Date.now() },
+        { force: true }
+      );
+    });
+  }
+
+  // 2) Otherwise resolve by name: downloads -> fixtures
+  const dlPath = `cypress/downloads/${fileName}`;
+  const fxPath = `cypress/fixtures/${fileName}`;
+
+  return cy.readFile(dlPath, null, { log: false })
+    .then(
+      buf => buf,
+      ()  => cy.readFile(fxPath, null, { log: false })
+    )
+    .then((fileContent) => {
+      cy.get('input[type="file"]').selectFile(
+        { contents: fileContent, fileName, mimeType: mime, lastModified: Date.now() },
+        { force: true }
+      );
+    });
+}
