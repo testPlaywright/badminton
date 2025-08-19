@@ -1,0 +1,8 @@
+// ✅ CORRECT
+const headers = [];
+const lastCol = sheet.row(HEADER_ROW).cell(1).lastUsedColumn().columnNumber();
+
+for (let c = 1; c <= lastCol; c++) {
+  const val = sheet.row(HEADER_ROW).cell(c).value();
+  headers.push(String(val ?? '').trim());
+}
