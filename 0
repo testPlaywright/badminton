@@ -1,0 +1,22 @@
+let r = firstDataRow;
+(rows && rows.length ? rows : [{}]).forEach((rowObj) => {
+  Object.entries(rowObj || {}).forEach(([k, v]) => {
+    const nk = normalizeIncomingKey(k);
+    let col = headerToCol[nk];
+
+    if (!col) {
+      const alt = Object.entries(headerToCol).find(([hk]) => {
+        const h = String(hk || '');
+        return h.includes(nk) || nk.includes(h) ||
+               (nk === 'pdlmrow' && h.includes('pdlm') && h.includes('row'));
+      });
+      if (!alt) {
+        console.log('[CAT] no column for key:', k, '→', nk, 'available:', Object.keys(headerToCol));
+      }
+      col = col || alt?.[1];
+    }
+
+    if (col) sheet.cell(r, col).value(v);
+  });
+  r++;
+});
