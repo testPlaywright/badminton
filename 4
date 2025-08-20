@@ -1,0 +1,7 @@
+Given('I prepare intent row from outline', (table) => {
+  const keys = table.rows().map(([k]) => k);
+  cy.log('RAW KEYS:', JSON.stringify(keys));
+  // inspect first key code points
+  const first = keys[0] || '';
+  cy.log([...String(first)].map(c => c.charCodeAt(0).toString(16)).join(' '));
+});
