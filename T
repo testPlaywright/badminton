@@ -1,0 +1,15 @@
+Object.entries(rowObj || {}).forEach(([k, v]) => {
+  const nk = normalizeIncomingKey(k);
+  let col = headerToCol[nk];
+
+  // --- NEW: fuzzy fallback for tricky headers like PDLMRow
+  if (!col) {
+    const alt = Object.entries(headerToCol).find(([hk]) =>
+      hk.includes(nk) || nk.includes(hk) ||
+      (nk === 'pdlmrow' && hk.includes('pdlm') && hk.includes('row'))
+    );
+    if (alt) col = alt[1];
+  }
+
+  if (col) sheet.cell(r, col).value(v);
+});
