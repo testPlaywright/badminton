@@ -1,0 +1,34 @@
+createTicketFlow(filename) {
+  const path = require('path');
+  const outName = path.basename(
+    filename || Cypress.env('uploadFileName') || 'CLINICAL_INTENT.xlsx'
+  );
+
+  // Prefer multi-row if present; otherwise fall back to single-row
+  return cy.get('@intentRows', { log: false }).then(rows => {
+    if (Array.isArray(rows) && rows.length) {
+      // many rows -> task: intent:makeFileMany
+      return cy.task('intent:makeFileMany', { rows, outName, filename: outName });
+    }
+    // else try single row
+    return cy.get('@intentRow', { log: false }).then(row => {
+      const safeRow = row || {};
+      return cy.task('intent:makeFile', { row: safeRow, outName, filename: outName });
+    });
+  })
+  .then(taskRes => {
+    // Tasks return { fileName, fullPath }. If older task returns a string, normalize it.
+    const produced = (typeof taskRes === 'string')
+      ? { fileName: taskRes, fullPath: `cypress/downloads/${taskRes}` }
+      : taskRes;
+
+    cy.log('Intent file created:', produced.fileName);
+
+    this.openUploadDialog();
+    // your uploadFile reads from cypress/downloads/<fileName>, so pass just the name
+    this.uploadFile(produced.fileName);
+
+    this.fillTicketForm();
+    this.getTicketID();
+  });
+}
