@@ -1,0 +1,9 @@
+Given('I prepare intent row from outline', (table) => {
+  const raw = table.rowsHash();   // gives { pdlmRow: "11", editType: "INVALID", ... }
+  const cleaned = Object.fromEntries(
+    Object.entries(raw).map(([k,v]) => [k.trim(), v.trim()])
+  );
+
+  cy.log('ROW:', JSON.stringify(cleaned));
+  cy.wrap(cleaned, { log: false }).as('intentRow');
+});
