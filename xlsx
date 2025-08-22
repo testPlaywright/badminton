@@ -1,0 +1,56 @@
+async function makeXlsxWithPopulate(rows, outName) {
+  const templatePath = path.join(__dirname, 'cypress', 'fixtures', 'intentTemplate.xlsx');
+  const downloadsDir = path.join(__dirname, 'cypress', 'downloads');
+  if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+
+  // ---- compute a unique, traceable name ----
+  const tag =
+    (rows && rows[0] && (rows[0].PDLMRow || rows[0].ProductID)) || 'row';
+  const ts = Date.now();
+
+  // honor outName if passed, but append a timestamp suffix to keep it unique
+  // e.g. "CLINICAL_INTENT.xlsx" -> "CLINICAL_INTENT__1692699999999.xlsx"
+  const base = (outName && outName.replace(/\.xlsx$/i, '')) || 'CLINICAL_INTENT';
+  const uniqueName = `${base}__${String(tag).replace(/[^a-z0-9_-]/gi, '')}__${ts}.xlsx`;
+
+  const outPath  = path.join(downloadsDir, uniqueName);
+
+  const wb    = await XlsxPopulate.fromFileAsync(templatePath);
+  const sheet = wb.sheet('CAT Automated');
+  if (!sheet) throw new Error('Sheet "CAT Automated" not found in intentTemplate.xlsx');
+
+  // header detection/mapping you already have:
+  const { headerRow } = findHeaderRow(sheet, ['pdlmRow', 'EditType']);
+  const firstDataRow  = headerRow + 1;
+  const { map: headerToCol, seen } = buildHeaderMap(sheet, headerRow);
+
+  if (!makeXlsxWithPopulate._logged) {
+    console.log('[CAT] header row:', headerRow);
+    console.log('[CAT] headers seen:', seen);
+    makeXlsxWithPopulate._logged = true;
+  }
+
+  let r = firstDataRow;
+  (rows && rows.length ? rows : [{}]).forEach((rowObj) => {
+    Object.entries(rowObj || {}).forEach(([k, v]) => {
+      const nk = normalizeIncomingKey(k);
+      let col = headerToCol[nk];
+      if (!col) {
+        const alt = Object.entries(headerToCol).find(([hk]) => {
+          const h = String(hk || '');
+          return h.includes(nk) || nk.includes(h) ||
+                 (nk === 'pdlmrow' && h.includes('pdlm') && h.includes('row'));
+        });
+        col = col || alt?.[1];
+      }
+      if (nk === 'pdlmrow') v = v || '';
+      if (col) sheet.cell(r, col).value(v != null ? String(v).trim() : '');
+    });
+    r++;
+  });
+
+  await wb.toFileAsync(outPath);
+
+  // return BOTH so callers can pick what they need
+  return { fileName: path.basename(outPath), fullPath: outPath };
+}
